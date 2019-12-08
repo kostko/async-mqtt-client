@@ -3,7 +3,7 @@
 AsyncMqttClient::AsyncMqttClient()
 : _connected(false)
 , _connectPacketNotEnoughSpace(false)
-, _disconnectFlagged(false)
+, _disconnectOnPoll(false)
 , _tlsBadFingerprint(false)
 , _lastClientActivity(0)
 , _lastServerActivity(0)
@@ -37,10 +37,10 @@ AsyncMqttClient::AsyncMqttClient()
   _client.onPoll([](void* obj, AsyncClient* c) { (static_cast<AsyncMqttClient*>(obj))->_onPoll(c); }, this);
 
 #ifdef ESP32
-  sprintf(_generatedClientId, "esp32%06x", uint32_t(ESP.getEfuseMac()));
+  sprintf(_generatedClientId, "esp32-%06llx", ESP.getEfuseMac());
   _xSemaphore = xSemaphoreCreateMutex();
 #elif defined(ESP8266)
-  sprintf(_generatedClientId, "esp8266%06x", ESP.getChipId());
+  sprintf(_generatedClientId, "esp8266-%06x", ESP.getChipId());
 #endif
   _clientId = _generatedClientId;
 
@@ -158,7 +158,7 @@ void AsyncMqttClient::_freeCurrentParsedPacket() {
 void AsyncMqttClient::_clear() {
   _lastPingRequestTime = 0;
   _connected = false;
-  _disconnectFlagged = false;
+  _disconnectOnPoll = false;
   _connectPacketNotEnoughSpace = false;
   _tlsBadFingerprint = false;
   _freeCurrentParsedPacket();
@@ -354,19 +354,19 @@ void AsyncMqttClient::_onConnect(AsyncClient* client) {
 
 void AsyncMqttClient::_onDisconnect(AsyncClient* client) {
   (void)client;
-  if (!_disconnectFlagged) {
-    AsyncMqttClientDisconnectReason reason;
+  AsyncMqttClientDisconnectReason reason;
 
-    if (_connectPacketNotEnoughSpace) {
-      reason = AsyncMqttClientDisconnectReason::ESP8266_NOT_ENOUGH_SPACE;
-    } else if (_tlsBadFingerprint) {
-      reason = AsyncMqttClientDisconnectReason::TLS_BAD_FINGERPRINT;
-    } else {
-      reason = AsyncMqttClientDisconnectReason::TCP_DISCONNECTED;
-    }
-    for (auto callback : _onDisconnectUserCallbacks) callback(reason);
+  if (_connectPacketNotEnoughSpace) {
+    reason = AsyncMqttClientDisconnectReason::ESP8266_NOT_ENOUGH_SPACE;
+  } else if (_tlsBadFingerprint) {
+    reason = AsyncMqttClientDisconnectReason::TLS_BAD_FINGERPRINT;
+  } else {
+    reason = AsyncMqttClientDisconnectReason::TCP_DISCONNECTED;
   }
+
   _clear();
+
+  for (auto callback : _onDisconnectUserCallbacks) callback(reason);
 }
 
 void AsyncMqttClient::_onError(AsyncClient* client, int8_t error) {
@@ -474,13 +474,14 @@ void AsyncMqttClient::_onPoll(AsyncClient* client) {
     _sendPing();
   }
 
+
   // handle to send ack packets
 
   _sendAcks();
 
   // handle disconnect
 
-  if (_disconnectFlagged) {
+  if (_disconnectOnPoll) {
     _sendDisconnect();
   }
 }
@@ -499,8 +500,7 @@ void AsyncMqttClient::_onConnAck(bool sessionPresent, uint8_t connectReturnCode)
     _connected = true;
     for (auto callback : _onConnectUserCallbacks) callback(sessionPresent);
   } else {
-    for (auto callback : _onDisconnectUserCallbacks) callback(static_cast<AsyncMqttClientDisconnectReason>(connectReturnCode));
-    _disconnectFlagged = true;
+    // Callbacks are handled by the ondisconnect function which is called from the AsyncTcp lib
   }
 }
 
@@ -686,7 +686,7 @@ bool AsyncMqttClient::_sendDisconnect() {
   _client.send();
   _client.close(true);
 
-  _disconnectFlagged = false;
+  _disconnectOnPoll = false;
 
   SEMAPHORE_GIVE();
   return true;
@@ -729,8 +729,8 @@ void AsyncMqttClient::disconnect(bool force) {
   if (force) {
     _client.close(true);
   } else {
-    _disconnectFlagged = true;
     _sendDisconnect();
+    _disconnectOnPoll = false;
   }
 }
 
@@ -888,4 +888,8 @@ uint16_t AsyncMqttClient::publish(const char* topic, uint8_t qos, bool retain, c
   } else {
     return 1;
   }
+}
+
+const char* AsyncMqttClient::getClientId() {
+  return _clientId;
 }
