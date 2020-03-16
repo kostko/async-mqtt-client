@@ -17,8 +17,8 @@
   "platforms": ["espressif8266", "espressif32"],
   "dependencies": [
     {
-      "name": "ESPAsyncTCP-esphome",
-      "version": "https://github.com/mhightower83/ESPAsyncTCP.git#4e39b7ff6e85cab643fc548edc16661da738a055",
+      "name": "ESPAsyncTCP",
+      "version": "https://github.com/kostko/ESPAsyncTCP.git#f105148e9b33e1c7fcb5473b1f7b5e12a6cd4eba",
       "platforms": "espressif8266"
     },
     {
