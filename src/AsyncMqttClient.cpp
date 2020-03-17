@@ -321,7 +321,7 @@ void AsyncMqttClient::_onConnect(AsyncClient* client) {
   sendbuffer[3] = 'Q';
   sendbuffer[4] = 'T';
   sendbuffer[5] = 'T';
-  
+
   sendbuffer[6] = protocolLevel[0];
   sendbuffer[7] = connectFlags[0];
   sendbuffer[8] = keepAliveBytes[0];
@@ -622,10 +622,10 @@ bool AsyncMqttClient::_sendPing() {
   fixedHeader[0] = fixedHeader[0] | AsyncMqttClientInternals::HeaderFlag.PINGREQ_RESERVED;
   fixedHeader[1] = 0;
 
-  size_t neededSpace = 2;
+  size_t neededSpace = _client.messageLength(2);
 
   SEMAPHORE_TAKE(false);
-  if (_client.space() < neededSpace) { SEMAPHORE_GIVE(); return false; }
+  if (_client.spaceRaw() < neededSpace) { SEMAPHORE_GIVE(); return false; }
 
   _client.add(fixedHeader, 2);
   _client.send();
@@ -637,11 +637,11 @@ bool AsyncMqttClient::_sendPing() {
 }
 
 void AsyncMqttClient::_sendAcks() {
-  uint8_t neededAckSpace = 2 + 2;
+  size_t neededAckSpace = _client.messageLength(2 + 2);
 
   SEMAPHORE_TAKE();
   for (size_t i = 0; i < _toSendAcks.size(); i++) {
-    if (_client.space() < neededAckSpace) break;
+    if (_client.spaceRaw() < neededAckSpace) break;
 
     AsyncMqttClientInternals::PendingAck pendingAck = _toSendAcks[i];
 
@@ -670,11 +670,11 @@ void AsyncMqttClient::_sendAcks() {
 bool AsyncMqttClient::_sendDisconnect() {
   if (!_connected) return true;
 
-  const uint8_t neededSpace = 2;
+  size_t neededSpace = _client.messageLength(2);
 
   SEMAPHORE_TAKE(false);
 
-  if (_client.space() < neededSpace) { SEMAPHORE_GIVE(); return false; }
+  if (_client.spaceRaw() < neededSpace) { SEMAPHORE_GIVE(); return false; }
 
   char fixedHeader[2];
   fixedHeader[0] = AsyncMqttClientInternals::PacketType.DISCONNECT;
@@ -753,14 +753,14 @@ uint16_t AsyncMqttClient::subscribe(const char* topic, uint8_t qos) {
   uint8_t remainingLengthLength = AsyncMqttClientInternals::Helpers::encodeRemainingLength(2 + 2 + topicLength + 1, fixedHeader + 1);
 
   size_t neededSpace = 0;
-  neededSpace += 1 + remainingLengthLength;
-  neededSpace += 2;
-  neededSpace += 2;
-  neededSpace += topicLength;
-  neededSpace += 1;
+  neededSpace += _client.messageLength(1 + remainingLengthLength);
+  neededSpace += _client.messageLength(2);
+  neededSpace += _client.messageLength(2);
+  neededSpace += _client.messageLength(topicLength);
+  neededSpace += _client.messageLength(1);
 
   SEMAPHORE_TAKE(0);
-  if (_client.space() < neededSpace) { SEMAPHORE_GIVE(); return 0; }
+  if (_client.spaceRaw() < neededSpace) { SEMAPHORE_GIVE(); return 0; }
 
   uint16_t packetId = _getNextPacketId();
   char packetIdBytes[2];
@@ -795,13 +795,13 @@ uint16_t AsyncMqttClient::unsubscribe(const char* topic) {
   uint8_t remainingLengthLength = AsyncMqttClientInternals::Helpers::encodeRemainingLength(2 + 2 + topicLength, fixedHeader + 1);
 
   size_t neededSpace = 0;
-  neededSpace += 1 + remainingLengthLength;
-  neededSpace += 2;
-  neededSpace += 2;
-  neededSpace += topicLength;
+  neededSpace += _client.messageLength(1 + remainingLengthLength);
+  neededSpace += _client.messageLength(2);
+  neededSpace += _client.messageLength(2);
+  neededSpace += _client.messageLength(topicLength);
 
   SEMAPHORE_TAKE(0);
-  if (_client.space() < neededSpace) { SEMAPHORE_GIVE(); return 0; }
+  if (_client.spaceRaw() < neededSpace) { SEMAPHORE_GIVE(); return 0; }
 
   uint16_t packetId = _getNextPacketId();
   char packetIdBytes[2];
@@ -852,14 +852,14 @@ uint16_t AsyncMqttClient::publish(const char* topic, uint8_t qos, bool retain, c
   uint8_t remainingLengthLength = AsyncMqttClientInternals::Helpers::encodeRemainingLength(remainingLength, fixedHeader + 1);
 
   size_t neededSpace = 0;
-  neededSpace += 1 + remainingLengthLength;
-  neededSpace += 2;
-  neededSpace += topicLength;
-  if (qos != 0) neededSpace += 2;
-  if (payload != nullptr) neededSpace += payloadLength;
+  neededSpace += _client.messageLength(1 + remainingLengthLength);
+  neededSpace += _client.messageLength(2);
+  neededSpace += _client.messageLength(topicLength);
+  if (qos != 0) neededSpace += _client.messageLength(2);
+  if (payload != nullptr) neededSpace += _client.messageLength(payloadLength);
 
   SEMAPHORE_TAKE(0);
-  if (_client.space() < neededSpace) { SEMAPHORE_GIVE(); return 0; }
+  if (_client.spaceRaw() < neededSpace) { SEMAPHORE_GIVE(); return 0; }
 
   uint16_t packetId = 0;
   char packetIdBytes[2];
